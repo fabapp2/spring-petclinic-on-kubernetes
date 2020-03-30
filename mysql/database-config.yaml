@@ -1,0 +1,15 @@
+apiVersion: v1
+data:
+  MYSQL_ROOT_PASSWORD: pedrito
+  MYSQL_DATABASE: petclinic
+  MYSQL_USER: pc
+  MYSQL_PASSWORD: pc
+
+kind: ConfigMap
+metadata:
+  creationTimestamp: "2020-03-28T11:48:57Z"
+  name: database-config
+  namespace: default
+  resourceVersion: "257546"
+  selfLink: /api/v1/namespaces/default/configmaps/database-config
+  uid: 72fd5158-4972-4034-b33f-c9cf5351d6ef

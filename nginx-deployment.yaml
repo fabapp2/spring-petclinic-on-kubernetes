@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-loadbalancer-deployment
+  labels:
+    app: nginx-lb-deployment
+spec:
+  template:
+    metadata:
+      name: nginx-pod
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx-container 
+          image: nginx:1.12
+  replicas: 12
+  selector:
+    matchLabels:
+      app: nginx

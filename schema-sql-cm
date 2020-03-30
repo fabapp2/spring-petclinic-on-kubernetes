@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  creationTimestamp: "2020-03-29T12:50:40Z"
+  name: schema-sql
+  namespace: default
+  resourceVersion: "603059"
+  selfLink: /api/v1/namespaces/default/configmaps/schema-sql
+  uid: 8fdef746-02cb-4f13-ad1d-093b48b60f09

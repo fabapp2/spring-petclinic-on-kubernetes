@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: two-containers
+  labels:
+    app: the-nginx
+    type: nginx
+spec:
+  containers:
+    - name: nginx-container
+      image: nginx
+  initContainers:
+    - name: redis
+      image: redis

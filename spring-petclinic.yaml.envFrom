@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-petclinic-deployment
+  labels:
+    app: spring-petclinic
+spec:
+  template:    
+    metadata:
+      name: spring-petclinic
+      labels:
+        app: spring-petclinic
+    spec:  
+      containers:       
+        - name: springboot-petclinic 
+          image: texanraj/springboot-petclinic
+          ports:
+          - containerPort: 8080
+          env:
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              valueFrom:
+                configMapKeyRef:
+                  name: spring-petshop-config
+                  key: management.endpoints.web.exposure.include
+  replicas: 3
+  selector:
+    matchLabels:
+      app: spring-petclinic   

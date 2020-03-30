@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-petclinic-deployment
+  labels:
+    app: spring-petclinic
+spec:
+  template:    
+    metadata:
+      name: spring-petclinic
+      labels:
+        app: spring-petclinic
+    spec:  
+      containers:       
+        - name: springboot-petclinic 
+          image: texanraj/springboot-petclinic
+#          command: ["cat"]
+#          args: ["/mysql/schema.sql"]
+          ports:
+          - containerPort: 8080
+          envFrom:
+          - configMapRef:
+              name: spring-petshop-config
+          volumeMounts:
+            - mountPath: /mysql
+              readOnly: true  
+              name: schema-sql
+        - name: nginx-sidecar
+          image: nginx
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - mountPath: /etc/nginx
+              readOnly: true
+              name: nginx-conf
+#      initContainers:
+#        - name: install
+#          image: busybox
+#          command: ["cat"]
+#          args: ["/mysql/schema.sql"]
+#          volumeMounts:
+#            - mountPath: /mysql
+#              readOnly: true
+#              name: schema-sql
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: nginx-cm
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+        - name: schema-sql
+          configMap:
+            name: schema-sql-cm
+            items:
+              - key: schema.sql 
+                path: schema.sql
+        - name: log
+          emptyDir: {}  
+  replicas: 3
+  selector:
+    matchLabels:
+      app: spring-petclinic   

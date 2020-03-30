@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-cm
+data:
+  nginx.conf: | 
+    worker_processes  3;
+    error_log  /var/log/nginx/error.log;
+    events { }
+    stream {
+        upstream db {
+          server 10.64.13.218:3306;
+        }
+
+        server {
+          listen 3306;
+          proxy_pass db;
+        }
+    }
+
