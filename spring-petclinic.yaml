@@ -12,19 +12,28 @@ spec:
         app: spring-petclinic
     spec:  
       containers:       
-        - name: springboot-petclinic 
-          image: texanraj/springboot-petclinic
-#          command: ["cat"]
-#          args: ["/mysql/schema.sql"]
+        - name: spring-petclinic 
+          image: arey/springboot-petclinic
           ports:
           - containerPort: 8080
           envFrom:
           - configMapRef:
-              name: spring-petshop-config
+              name: spring-petclinic-config
           volumeMounts:
             - mountPath: /mysql
               readOnly: true  
               name: schema-sql
+          readinessProbe:
+            httpGet:
+              path: /manage/health
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /manage/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 3
         - name: nginx-sidecar
           image: nginx
           ports:
@@ -33,15 +42,16 @@ spec:
             - mountPath: /etc/nginx
               readOnly: true
               name: nginx-conf
-#      initContainers:
-#        - name: install
-#          image: busybox
-#          command: ["cat"]
-#          args: ["/mysql/schema.sql"]
-#          volumeMounts:
-#            - mountPath: /mysql
-#              readOnly: true
-#              name: schema-sql
+          readinessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3306
+            initialDelaySeconds: 15
+            periodSeconds: 20
       volumes:
         - name: nginx-conf
           configMap:

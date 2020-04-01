@@ -1,0 +1,827 @@
+= Spring Petclinic on Kubernetes
+:author: Fabian Krüger
+:email: <krueger.fab@gmail.com>
+:doctype: article
+:sectanchors: true
+:sectnums: true
+:toc: left
+:database-backup-cronjob-yaml: github.com/fabapp/foo
+
+
+== Introduction
+
+While preparing myself for the CKAD exam I was looking for something more exciting than
+following even more sandbox examples on the internet to spend my weekend in isolation
+during the COVID-19 pandemic.
+
+I finished https://www.udemy.com/course/certified-kubernetes-application-developer/[Mumshad's excellent peparation course on udemy]
+and finally wanted to get something deployed on a real Kubernetes cluster.
+As Spring enthusiast the https://github.com/spring-projects/spring-petclinic[Spring petclinic] came to my mind.
+It was a good decision as I could use all of the topics for the CKAD while
+focusing on deployment on GCP Kubernetes cluster without caring about the app itself too much.
+
+This article describes the steps I took on my journey, the problems I was facing
+and the ways I chose to get around them.
+The idea is to allow you to do it yourself and proof to yourself that you understood the concepts
+and are ready and able to apply them to a "real" life example.
+
+*Disclaimer: The focus was on using as many Kubernetes features as possible and
+NOT to always choose the most pragmatic or "best" solution.*
+
+[discrete]
+## How to follow the exercises
+
+* Read the tasks and try to apply them in the cloud of your choice, I've been using Google Cloud.
+* If you get stuck (some steps afford some deeper knowledge of some Spring Boot features) there's a
+"hint" provided for most steps which sends you to the hint section of the exercise and back from there.
+* If you want to jump straight to the solution there's also a link that directs you to the solution and back.
+
+## Setup
+
+
+### Signup for a cloud account
+
+For some examples Minikube will not be sufficient and you might want to signup for some free cloud offer:
+TODO: list free offers here
+
+### Setup Kubernetes CLI
+Install auto completion and the `k` alias which will be used in the examples.
+You will find the infromation in the https://kubernetes.io/docs/reference/kubectl/cheatsheet/[Kubectl Cheatsheet]
+
+## Exercises
+If you want you can just try to fulfil these goals without further explanation
+Some parts might be even a bit more interesting if you try not to look into the Git repository
+of the petclinic.
+
+
+[#goals]
+### Goals
+* [ ] <<deploy_the_petclinic>>
+* [ ] <<make_the_petclinic_publicly_available>>
+* [ ] <<limit_actuator_endpoints>>
+* [ ] <<deploy_mysql>>
+* [ ] <<add_ambassador>>
+* [ ] <<add_probes_to_pods>>
+* [ ] <<define_resource_boundaries>>
+* [ ] <<create_backup_job>>
+
+
+* [ ] <<taints_and_tolerations>>
+
+
+
+* [ ] make another deployment of petclinic using the same database
+
+
+* [ ] Create namespaces for all deployments and restructure your deployments to use the namespaces
+
+
+Q: Verify if taints and tollerations are available for namespaces?
+
+
+
+* [ ] Do this on namespace level for the database Pod and on Pod level for the application Pods
+* [ ] configure Ingress to use one deployment for /vet endpoint and one for the /owners endpoint
+* [ ] create a scheduled job to reset the database each hour
+
+
+* [ ] Q: combine with a initContainer, the first initContainer cleans up the directory, next initContainer creates the backup, the next zips the backup file and the job copies it somewhere and another container sends out as an email ?!
+* [ ] secure and limit communications to ingress/outgress as restrictive as possible
+
+* [ ] Create a ServiceAccount
+* [ ] Apply the ServiceAccount to all Pods
+
+
+[#deploy_the_petclinic]
+### Create deployment for the Spring petclinic
+Create a Deployment `spring-petclinic-deployment` for the petclinic using the `arey/springboot-petclinic` image with 3 replicas.
+The spring petclinic container is available under port 8080 with labels `app: spring-petclinic`
+
+<<goals, see goals>> +
+<<deploy_the_petclinic_image-solution, see solution>>
+
+
+[#deploy_the_petclinic-solution]
+### Create deployment for the Spring petclinic - solution
+Just create a Deployment.
+. `k run spring-petclinic-deployment --image=arey/springboot-petclinic --replicas=3 --labels=app=spring-petclinic`
+. `k get deployment spring-petclinic-deployment -o yaml > spring-petclinic.yaml`
+
+<<deploy_the_petclinic_image-solution, go back>>
+
+
+---
+
+[#make_the_petclinic_publicly_available]
+### Make the petclinic publicly available
+Create all Kubernetes objects required to access the deployed spring petclinic under port 80 in your browser.
+
+<<goals, see goals>> +
+<<make_the_petclinic_publicly_available-hint, see hints>> +
+<<make_the_petclinic_publicly_available-solution, see solution>>
+
+
+[#make_the_petclinic_publicly_available-hint]
+### Make the petclinic publicly available - hints
+You'll need a `NodePort` and an `Ingress`.
+The Ingress can be installed using GCP user interface.
+If you create the Ingress using the UI export it as yaml.
+Remove everything you think is not required and
+replace the existing Ingress using your exported and cleaned up yaml.
+Try to remove as much as you can to see what the minimal working Ingress definition looks like.
+
+<<make_the_petclinic_publicly_available, go back>>
+
+
+[#make_the_petclinic_publicly_available-solution]
+### Make the petclinic publicly available - solution
+
+. Create a NodePort which makes the exposed port 8080 available under port 80 +
+
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: spring-petclinic-nodeport
+  spec:
+    type: NodePort
+    ports:
+      - nodePort: 30100
+        port: 80
+        targetPort: 8080
+    selector:
+      app: spring-petclinic
+
+. Create the Ingress routing inbound traffic to the Pods of the petclinic Deployment
+
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    name: spring-petclinic-ingress
+  spec:
+    backend:
+      serviceName: spring-petclinic-nodeport
+      servicePort: 80
+
+. `k get ingress`
+. Open IP address under `ADDRESS` in the browser and the petclinic startpage should be displayed
+
+<<make_the_petclinic_publicly_available, go back>>
+
+
+
+
+---
+
+[#limit_actuator_endpoints]
+### Limit actuator endpoints to /actuator/info and actuator/health
+Spring boot has a builtin health endpoint which is by default available under `actuator/health`.
+It is also possible to provide many more informations using other `/actuator/...` endpoints.
+Find out under which path the `actuator` endpoints are available and restrict them to the
+`/health` and `/info` endpoints.
+If you're not familiar with Spring Boot you might want to
+https://docs.spring.io/spring-boot/docs/current/reference/html/production-ready-features.html#production-ready-endpoints-exposing-endpoints[read
+the documentation about exposing endpoints with actuator] and https://docs.spring.io/spring-boot/docs/1.5.6.BUILD-SNAPSHOT/reference/html/boot-features-external-config.html#boot-features-external-config[about externalising configuration] and
+https://docs.spring.io/spring-boot/docs/1.5.6.BUILD-SNAPSHOT/reference/html/boot-features-external-config.html#boot-features-external-config-application-property-files[how the environment variables must look like].
+
+<<goals, see goals>> +
+<<limit_actuator_endpoints-hints, see hints>> +
+<<limit_actuator_endpoints-solution, see solution>>
+
+
+[#limit_actuator_endpoints-hints]
+### Limit actuator endpoint to info and health endpoint - hints
+exec a shell in one container, extract the jar and check `/BOOT-INF/classes/application.properties`
+to see which endpoints are available and what the actuator path really is.
+You can configure Spring by providing environment variables (and in many other ways) which override application properties.
+Override the actuator base path and explicitly enable `info` and `health` endpoints using environment variables.
+
+<<limit_actuator_endpoints, go back>>
+
+[#limit_actuator_endpoints-solution]
+### Limit actuator endpoint to info and health endpoint - solution
+
+#### Find the actuator base path endpoint configuration
+. `k get pods`
+. Select a Pod
+. `k exec -it <selected-pod> -- /bin/sh`
+. `unzip petclinic.jar`
+. `vi BOOT-INF/classes/application.properties`
+. find the information: +
+
+    # Actuator / Management
+    management.endpoints.web.base-path=/manage
+    management.endpoints.web.exposure.include=*
+
+`exit`
+
+
+#### Create and link a ConfigMap
+Override the application properties by providing environment variables to the Pods to override the properties.
+
+. Create a ConfigMap
+. `k create cm spring-petclinic-foo \` +
+`--from-literal=MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,info \` +
+`--from-literal=MANAGEMENT_ENDPOINTS_WEB_BASE=actuator`
+. export the ConfigMap
+. `k get cm spring-petclinic-config -o yaml > spring-petclinic-config.yaml`
+. link the ConfigMap to the Pods +
++
+    spec:
+      containers:
+      - envFrom:
+        - configMapRef:
+            name: spring-petclinic-config
+
+. Apply changes
+. `k apply -f spring-petclinic.yaml`
+. `k rollout restart deployment spring-petclinic-deployment`
+. check the endpoint `actuator/health` and `actuator/info`
+
+<<limit_actuator_endpoints, go back>>
+
+
+
+
+---
+
+[#deploy_mysql]
+## Deploy a MySQL database using a PersistentVolume
+
+<<goals, see goals>> +
+<<deploy_mysql-hints, show hints>> +
+<<deploy_mysql-hints-solution, show solution>>
+
+[#deploy_mysql-hints]
+## Deploy a MySQL database using a PersistentVolume - hints
+
+<<deploy_mysql, go back>>
+
+[#deploy_mysql-solution]
+## Deploy a MySQL database using a PersistentVolume - solution
+
+<<deploy_mysql, go back>>
+
+
+
+---
+
+[#add_probes_to_pods]
+## Add probes to all pods
+
+<<goals, see goals>> +
+<<add_probes_to_pods-hints, show hints>> +
+<<add_probes_to_pods-solution, show solution>>
+
+
+[#add_probes_to_pods-hints]
+### Add probes to all pods - hints
+
+<<add_probes_to_pods, go back>>
+
+
+[#add_probes_to_pods-solution]
+### Add probes to all pods - solution
+
+#### Add a liveness probe to spring-petclinic checking the actuator endpoint for status 'ok'.
+[source, yaml]
+----
+  readinessProbe:
+    httpGet:
+      path: /manage/health
+      port: 8080
+    periodSeconds: 5
+  livenessProbe:
+    httpGet:
+      path: /manage/health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 3
+----
+
+
+#### Add a TCP liveness probe to the Ambassador
+
+[source, yaml]
+----
+spec.containers:
+    readinessProbe:
+      tcpSocket:
+        port: 3306
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    livenessProbe:
+      tcpSocket:
+        port: 3306
+      initialDelaySeconds: 15
+      periodSeconds: 20
+----
+
+
+#### Add a TCP liveness probe to mysql checking port 3306.
+
+[source, yaml]
+----
+spec.containers:
+    readinessProbe:
+      tcpSocket:
+        port: 3306
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    livenessProbe:
+      tcpSocket:
+        port: 3306
+      initialDelaySeconds: 15
+      periodSeconds: 20
+----
+
+<<add_probes_to_pods, go back>>
+
+
+
+
+---
+
+[#add_ambassador]
+#### Add an Ambassador to allow database access on localhost for the app
+
+<<goals, see goals>> +
+<<add_ambassador-hints, show hints>> +
+<<add_ambassador-solution, show solution>>
+
+[#add_ambassador-hints]
+### Add an Ambassador to allow database access on localhost for the app - hints
+
+<<add_ambassador, go back>>
+
+
+[#add_ambassador-solution]
+### Add an Ambassador to allow database access on localhost for the app - solution
+
+<<add_ambassador, go back>>
+
+
+
+
+---
+[#define_resource_boundaries]
+### Define resource boundaries for all pods
+
+Get information of available nodes.
+
+<<define_resource_boundaries-hints, show hints>> +
+<<define_resource_boundaries-solution, show solution>>
+
+
+[#define_resource_boundaries-hints]
+### Define resource boundaries for all pods - hints
+
+<<define_resource_boundaries, go back>>
+
+
+[#define_resource_boundaries-solution]
+### Define resource boundaries for all pods - solution
+
+<<define_resource_boundaries, go back>>
+
+
+
+
+---
+[#deploy_backup_pod]
+### Deploy a Pod to backup the database
+Create a Pod with the image `databack/mysql-backup` to create backups of the MySQL database.
+The backups should be created in a `/backups` directory in a dedicated `PersistentVolume`.
+See the https://hub.docker.com/r/databack/mysql-backup[documentation] for how to configure the container.
+Use existing environment variables where possible and create a mew `ConfigMap` for new environment variables.
+The container should run backup and shutdown afterwards. We'll use a `CronJob` to run the Pod in the next exercise.
+Verify that backups are created by looking at the generated sql dump.
+
+<<goals, see goals>> +
+<<deploy_backup_pod-hints, show hints>> +
+<<deploy_backup_pod-solution, show solution>>
+
+[#deploy_backup_pod-hints]
+### Deploy a Pod to backup the database - hints
+* You'll need to set permissions for the user to write to the PV in the `SecurityContext` section.
+* To retrieve the required gid use the `id` command.
+
+[#deploy_backup_pod-solution]
+### Deploy a Pod to backup the database - solution
+. Create Pod: `k run database-backup --restart=Never --image=databack/mysql-backup --labels=app=database-backup`
+. Create ConfigMap: `k create configmap database-backup-config \` +
+  `--from-literal=RUN_ONCE:true \` +
+  `--from-literal=DB_DUMP_TARGET=/backups \` +
+  `--from-literal=DB_HOST=<clusterIP of MySQL> \` +
+  `--from-literal=DB_PORT=3306`
+. Link `database-backup-config` to pod and use `DB_USER` and `DB_PASS` from  `database-config` +
+
+  envFrom:
+  - configMapRef:
+    name: database-backup-config
+  env:
+    - name: DB_USER
+      valueFrom:
+        configMapKeyRef:
+          key: MYSQL_USER
+          name: database-config
+    - name: DB_PASS
+      valueFrom:
+        configMapKeyRef:
+          key: MYSQL_PASSWORD
+          name: database-config
+
+. Set start command to keep the container running for now +
+
+  spec.containers:
+    command: ["sh"]
+    args: ["-c", "sleep 60"]
+
+. Verify that environment variables are set
+.. `k exec -it database-backup -- /bin/sh`
+.. `env`
+. Add a volume to the Pod +
+
+  spec:
+    containers:
+      volumeMounts:
+        - mountPath: /backups
+          name: database-backup-volume
+    volumes:
+      - name: database-backup-volume
+        persistentVolumeClaim:
+          claimName: database-backup-pvc
+
+
+. Create the `PersistentVolumeClaim`
+.. `vi database-backup-pvc.yaml`
+.. Paste the yaml: +
+
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: database-backup-pvc
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 1Gi
+
+.. `k create -f database-backup-pvc.yaml`
+. Delete the Pod `k delete  -f database-backup.yaml --grace-period=0 --force`
+. Recreate the Pod `k create -f database-backup.yaml`
+. Verify that the volume was mounted: +
+.. `k exec -it database-backup -- /bin/sh`
+.. `ls` should show the `backups` dir
+. Verify that the container can write to the volume `touch backups/foo.txt` will result in missing permission
+. Get gid of the user: `id` shows 1005
+. Modify `SecurityContext` of the Pod +
+
+  spec:
+    securityContext:
+      fsGroup: 1005
+
+. Check again if `touch backups/foo.txt` is working
+. Remove the sleep command again
+. Delete and create the Pod, the backup should start now and the container stops afterwards
+. Add sleep command again
+. Delete and create container
+. open shell in container and verify that the backup was created
+. unpack the backup `tar -xzf <tar file with backup>`
+. open sql file in vi and verify the backup was successful
+
+
+
+---
+
+[#create_backup_job]
+### Create a scheduled job that creates an hourly backup of the mysql database
+Create a `CronJob`  named `database-backup-cron` to create an hourly backup of the database using the `database-backup` Pod.
+The `CronJob` should run every full hour. If the `CronJob` is running when another `Job` is scheduled to start the new `Job`
+should be skipped.
+
+<<goals, see goals>> +
+<<create_backup_job-hints, see hints>> +
+<<create_backup_job-solution, see solution>>
+
+
+
+[#create_backup_job-hints]
+### Create a scheduled job that creates an hourly backup of the mysql database - hints
+
+
+<<create_backup_job, go back>>
+
+[#create_backup_job-solution]
+### Create a scheduled job that creates an hourly backup of the mysql database - solution
+
+. Use `CronJob` yaml from Kubernetes documentation
+. Strip any obsolete properties from `database-backup.yaml` Pod definition
+. Copy relevant parts from Pod definition into `jobTemplate.spec.template` +
+. see link:{database-backup-cronjob-yaml}[database-backub-cronjob.yaml, window=_blank]
+. verify that `CronJob` is working: ``
+
+<<create_backup_job, go back>>
+
+
+---
+[#taints_and_tolerations]
+### Use taint, tolerance and affinity to deploy each deployments to a dedicated node
+Add taint and toleration
+
+<<goals, see goals>> +
+<<taints_and_tolerations, see hints>> +
+<<taints_and_tolerations-solution, see solution>>
+
+[#taints_and_tolerations-hints]
+### Use taint, tolerance and affinity to deploy each deployments to a dedicated node - hints
+
+<<taints_and_tolerations, go back>>
+
+
+[#taints_and_tolerations-solutions]
+### Use taint, tolerance and affinity to deploy each deployments to a dedicated node - solution
+
+<<taints_and_tolerations, go back>>
+
+
+## Hints
+
+## Solutions
+
+
+---
+
+#### Resources
+* https://kubernetes.io/docs/concepts/configuration/assign-pod-node/[Assigning Pods to Nodes]
+
+
+
+
+## TODO
+* [ ] replace ip and port in nginx.conf with environment variables from ConfigMap
+
+---
+
+A quick search on https://hub.docker.com[dockerhub] made me pick the `arey/springboot-petclinic`
+example without thinking much about it - hey, it had some documentation and uses Spring Boot!
+So lets quickly crate a deplpyment: `k run spring-petclinic --image arey/springboot-petclinic --replicas=3`
+and check if it was created successfully: `k get deployment`.
+Yes! it worked as expected.
+
+## Create a NodePort
+
+## Create Ingress
+
+## Limit actuator endpoints
+
+
+
+## Deploy MySQL
+
+## Create a ClusterIP for MySQL
+
+## Add a sidecar to spring petclinic
+
+## Change schema.sql
+
+## Change container startup command
+
+
+
+
+Topics:
+
+* Ingress with routing of two paths to two deployments
+* CronJob and Job
+* Services (NodePort, ClusterIP)
+* Deployments:
+**
+* change port of deployed pet store
+
+### Deploy the Spring Boot Petshop
+
+. Deploy spring-petclinic: `petclinic.yaml`
+. Deploy NodePort: `spring-petclinic-nodeport.yaml` +
+Q: can I create a yaml using kubectl ?
+. Deploy Ingress Controller: `spring-petclinic-ingress.yaml`
+. The Petshop should be available
+
+
+Activate actuator endpioint
+. Create ConfigMap: `kubectl create configmap spring-petshop-config  --from-literal="management.endpoints.web.exposure.include=*"`
+. find out  what the actuator endpoint is (extract jar and inspect application.properties)
+. Find out where how to reach the actuator endpint (hint: look into the deployed `application.properties` file)
+
+Create MySQL Pod
+. Create ConfigMap and configure MYSQL_ROOT_USER_PASSWORD
+. Link configuration into MySQL Pod
+. Change active_profile in spring application
+. provide required spring.datasource.* properties using a ConfigMap
+. Find out what user is used to connect to database
+. create the user in MySQL Pod using a command on startup (https://stackoverflow.com/questions/33979501/kubernetes-passing-multiple-commands-to-the-container/33979556)
+
+
+Create a NGINX sidecar
+* Run shell in app: `kubectl exec -it spring-petclinic-deployment-5cc7ddf5bc-5h2tq -c springboot-petclinic -- sh`
+
+Let's see what the logs of the springboot-pedclinic show...
+`k logs k logs spring-petclinic-deployment-5cc7ddf5bc-5h2tq -c springboot-petclinic`
+
+Something is not working in the `schema.sql` script on application startup.
+Let's try in the MySQL pod...
+
+`k get pods`
+[source, log]
+----
+NAME                                           READY   STATUS    RESTARTS   AGE
+mysql-54dbdbdd8f-77kf4                         1/1     Running   0          13h
+spring-petclinic-deployment-5cc7ddf5bc-5h2tq   2/2     Running   0          13h
+spring-petclinic-deployment-5cc7ddf5bc-qfk7k   2/2     Running   0          13h
+spring-petclinic-deployment-5cc7ddf5bc-t46z8   2/2     Running   0          13h
+----
+
+Open shell in the MySQL Pod...
+`k exec -it mysql-54dbdbdd8f-77kf4 -- sh`
+
+Login to MySQL console
+
+`mysql -u root --password=pedrito`
+
+running tbe command from `schema.sql`
+`GRANT ALL PRIVILEGES ON petclinic.* TO pc@localhost IDENTIFIED BY 'pc';`
+indeed runs into an error in the MySQL Pod
+
+[source, log]
+----
+GRANT ALL PRIVILEGES ON petclinic.* TO pc@localhost IDENTIFIED BY 'pc';
+ERROR 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'IDENTIFIED BY 'pc'' at line 1
+----
+
+SO let's fix the SQL and try a
+
+`GRANT ALL PRIVILEGE ON petclinic.* TO pc@localhost;`
+
+which results in a
+
+[source, log]
+----
+ERROR 1410 (42000): You are not allowed to create a user with GRANT;
+----
+
+checking the MySQL https://dev.mysql.com/doc/refman/8.0/en/grant.html[reference]
+
+shows that the syntax is correct and the root user just seems not to be allowed to give grants.
+After some research it seems that the problem might be https://stackoverflow.com/a/29437994/12312591[that the user already has ALL PRIVILEGES]?
+
+[source, sql]
+....
+mysql> SHOW GRANTS FOR pc;
++---------------------------------------------------+
+| Grants for pc@%                                   |
++---------------------------------------------------+
+| GRANT USAGE ON *.* TO `pc`@`%`                    |
+| GRANT ALL PRIVILEGES ON `petclinic`.* TO `pc`@`%` |
++---------------------------------------------------+
+2 rows in set (0.00 sec)
+....
+
+### Overwiting the schema.sql in petclinic
+
+However, as I want to play around with Kubernetes and not change anything in the petclinic,
+I decided to try to overwrite the provided schema.sql with one without the failing sql.
+This can be done by extending the classpath scanned by Spring and provide a file with the same name as in the petshop and thus oberwriting the original file.
+
+#### Creating a ConfigMap with the new schema.sql
+
+Defining a ConfigMap with the adjusted `schema.sql` file
+
+`kubectl create cm schema-sql-cm  --from-file schema.sql`
+
+creates a ConfigMap, and `k get cm schema-sql-cm -o yaml` result in this yaml
+
+[source, yaml]
+----
+  apiVersion: v1
+  data:
+    schema.sql: |
+      USE petclinic;
+
+      CREATE TABLE IF NOT EXISTS vets (
+        id INT(4) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        first_name VARCHAR(30),
+        last_name VARCHAR(30),
+        INDEX(last_name)
+      ) engine=InnoDB;
+
+      CREATE TABLE IF NOT EXISTS specialties (
+        id INT(4) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(80),
+        INDEX(name)
+      ) engine=InnoDB;
+
+      CREATE TABLE IF NOT EXISTS vet_specialties (
+        vet_id INT(4) UNSIGNED NOT NULL,
+        specialty_id INT(4) UNSIGNED NOT NULL,
+        FOREIGN KEY (vet_id) REFERENCES vets(id),
+        FOREIGN KEY (specialty_id) REFERENCES specialties(id),
+        UNIQUE (vet_id,specialty_id)
+      ) engine=InnoDB;
+
+      CREATE TABLE IF NOT EXISTS types (
+        id INT(4) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(80),
+        INDEX(name)
+      ) engine=InnoDB;
+
+      CREATE TABLE IF NOT EXISTS owners (
+        id INT(4) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        first_name VARCHAR(30),
+        last_name VARCHAR(30),
+        address VARCHAR(255),
+        city VARCHAR(80),
+        telephone VARCHAR(20),
+        INDEX(last_name)
+      ) engine=InnoDB;
+
+      CREATE TABLE IF NOT EXISTS pets (
+        id INT(4) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(30),
+        birth_date DATE,
+        type_id INT(4) UNSIGNED NOT NULL,
+        owner_id INT(4) UNSIGNED NOT NULL,
+        INDEX(name),
+        FOREIGN KEY (owner_id) REFERENCES owners(id),
+        FOREIGN KEY (type_id) REFERENCES types(id)
+      ) engine=InnoDB;
+
+      CREATE TABLE IF NOT EXISTS visits (
+        id INT(4) UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        pet_id INT(4) UNSIGNED NOT NULL,
+        visit_date DATE,
+        description VARCHAR(8192),
+        FOREIGN KEY (pet_id) REFERENCES pets(id)
+      ) engine=InnoDB;
+  kind: ConfigMap
+  metadata:
+    creationTimestamp: "2020-03-29T12:54:14Z"
+    name: schema-sql
+    namespace: default
+    resourceVersion: "603860"
+    selfLink: /api/v1/namespaces/default/configmaps/schema-sql
+    uid: e59e00af-6fe0-4076-a590-e4ed9b0cb3aa
+----
+
+#### Define the schema.sql as Volume in the Pods
+
+[source, yaml]
+----
+spec:
+  template:
+    metadata:
+      name: spring-petclinic
+      labels:
+        app: spring-petclinic
+    spec:
+      containers:
+        - name: springboot-petclinic
+          image: texanraj/springboot-petclinic
+          ports:
+          - containerPort: 8080
+          ...
+          volumeMounts:
+            - mountPath: /additional-classpath/db/mysql/schema.sql
+              readOnly: true
+              name: schema-sql
+        ...
+      volumes:
+        ...
+        - name: schema-sql
+          configMap:
+            name: schema-sql-cm
+            items:
+              - key: schema-sql
+                path: schema.sql
+----
+
+
+
+
+[source, log]
+----
+Caused by: java.sql.SQLSyntaxErrorException: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'IDENTIFIED BY 'pc'' at line 1
+----
+
+A `k exec -it spring-petclinic-deployment-5cc7ddf5bc-5h2tq -c springboot-petclinic  -- sh` shows
+
+I run into the next problem, the MySQL contianer does
+
+## Solutions
+`
+
+
+
+## TODOs
+* [ ] replace IP in nginx.conf by env variable from ConfigMap
+* [ ] Add lifeness Probe
+* [ ] Use teint and tollerance and affinity to deploy to all three nodes

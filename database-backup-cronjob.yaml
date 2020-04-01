@@ -1,0 +1,42 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: database-backup-cron
+spec:
+  schedule: "*1 */1 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: database-backup
+          name: database-backup
+        spec:
+          securityContext:
+            fsGroup: 1005
+          volumes:
+            - name: database-backup-volume
+              persistentVolumeClaim:
+                claimName: database-backup-pvc
+          containers:
+            - image: databack/mysql-backup
+              name: database-backup
+              volumeMounts:
+                - mountPath: /backups
+                  name: database-backup-volume
+              envFrom:
+                - configMapRef:
+                    name: database-backup-config
+              env:
+                - name: DB_USER
+                  valueFrom:
+                    configMapKeyRef:
+                      key: MYSQL_USER
+                      name: database-config
+                - name: DB_PASS
+                  valueFrom:
+                    configMapKeyRef:
+                      key: MYSQL_PASSWORD
+                      name: database-config
+          restartPolicy: OnFailure
